@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { checkTransfer } from "./transfer-check.mjs";
+import { checkSwStall } from "./sw-check.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const url = pathToFileURL(path.join(root, "index.html")).href;
@@ -119,6 +120,8 @@ check("README の URL のすぐ後ろに全角の字を続けない（Link check
   const local = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => "./" + m[1]);
   check("PWA：sw.js は画面のファイルを全部保存し（data.js・gen.js・transfer.js も）、外へ何も送らない", need.concat(local).every((f) => shell.includes(f)) && local.includes("./data.js") && !/https?:\/\//.test(sw.replace(/^\/\/.*$/gm, "")));
   check("PWA：入れるときは HTTP の保存でなくサーバーから取り直す（古い版を保存しない。drift-check）", /addAll\(SHELL\.map\(\(u\) => new Request\(u, \{ cache: "reload" \}\)\)\)/.test(sw));
+  { const st = await checkSwStall(sw); check("PWA：本文の途中で通信が止まっても、4秒で保存したものを返す・ふだんはネットの返事（qa/sw-check.mjs）", st.ok, JSON.stringify(st)); }
+  check("PWA：返したら60秒の見張りも止める（drift-check の sw:deadline）", /clearTimeout\(deadline\)/.test(sw));
   check("PWA：保存の名前はこのゲームのもの", /CACHE = "sagi-minuki-v\d+"/.test(sw));
   check("PWA：manifest にアイコンと名前がある・maskable は別の画像", mf.name === "詐欺みぬき" && mf.icons.length >= 2 && mf.start_url === "./" && mf.icons.some((i) => i.purpose === "maskable" && i.src === "icon-512-maskable.png")); }
 { const src = html + read("gen.js");
