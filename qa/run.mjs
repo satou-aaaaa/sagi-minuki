@@ -234,6 +234,13 @@ try {
     check("今日の5問を終える前は、上級を始めない（別のタブの古い画面からも。2026-11-07 CodeRabbit）", (await ph.evaluate(() => !window.__sg.load().runs.h)) && (await ph.locator("#go-d").count()) === 1);
     check("届いたメッセージ（差出人と本文）も読み上げの対象", (await ph.evaluate(() => { window.__sg.start("d"); return !!document.querySelector(".msg[data-a11y-say]"); })));
     await ph.close(); }
+  { const pk = await newPage(); await pk.click("#howto-ok");
+    check("「わかった」を押した直後に読み直しても、遊び方が出ない（保存は押したときすぐ）", await pk.evaluate(() => window.__sg.load().tut === true)); await pk.reload();
+    check("「わかった」のあと開き直しても、遊び方が出ない", (await pk.locator("#howto[open]").count()) === 0); await pk.close(); }
+  { const pe = await newPage(); await pe.keyboard.press("Escape"); await pe.waitForTimeout(100);
+    const closed = (await pe.locator("#howto[open]").count()) === 0; await pe.reload();
+    check("遊び方を Esc で閉じたあと、開き直しても遊び方が出ない（2026-11-07 shared-workflows #186）", closed && (await pe.locator("#howto[open]").count()) === 0 && (await pe.evaluate(() => window.__sg.load().tut === true)));
+    await pe.close(); }
   // 練習中に今日の途中を消さない
   { const pp = await newPage(); await closeHow(pp); await pp.click("#go-d"); await answer(pp, "perfect"); await pp.click("#next"); await pp.click("#back");
     await pp.click("#go-p"); await pp.click('[data-t="all"]'); await answer(pp, "perfect"); await pp.click("#back");

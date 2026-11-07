@@ -369,7 +369,8 @@ const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 const footer = () => `<footer><a href="#" id="f-how">遊び方</a><a href="#" data-a11y-open>見やすさ</a><a href="#" data-hk>引き継ぎ</a><a href="${FEEDBACK}" target="_blank" rel="noopener">感想を送る</a><a href="https://ko-fi.com/satouaaaaa" target="_blank" rel="noopener">Ko-fi で応援</a></footer>`;
 function bindFooter() { const h = $("f-how"); if (h) h.onclick = (e) => { e.preventDefault(); openHow(); }; }
 function openHow() { $("fb2").href = FEEDBACK; const d = $("howto"); if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
-$("howto-ok").onclick = () => { const d = $("howto"); d.close ? d.close() : d.removeAttribute("open"); save((s) => { s.tut = true; }); };
+$("howto-ok").onclick = () => { save((s) => { s.tut = true; }); const d = $("howto"); d.close ? d.close() : d.removeAttribute("open"); }; // すぐ保存する（close は少し遅れて届く）
+$("howto").addEventListener("close", () => { if (!load().tut) save((s) => { s.tut = true; }); }); // Esc で閉じても、もう開かない（2026-11-07 shared-workflows #186）
 const HELP = `<p class="help">迷ったら、ひとりで決めずに相談を。警察相談専用電話 <b>#9110</b>・消費者ホットライン <b>188</b>。お金を取られたら、すぐに警察（110）へ。</p>`;
 const srcLinks = (keys) => `<details class="coach srcs"><summary>出どころ（${new Set(keys).size}つ）</summary>${[...new Set(keys)].map((k) => `<a href="${D.SRC[k].url}" target="_blank" rel="noopener">${esc(D.SRC[k].name)}</a>`).join("<br>")}</details>`;
 
