@@ -75,14 +75,14 @@ const prevDay = (k) => new Date(Date.parse(k) - 864e5).toISOString().slice(0, 10
     };
     if (!chk(d, [1, 2])) bad.push(k);
     if (!chk(h, [2, 3])) hbad.push(k);
-    if (n >= 2) { const p1 = G.dailyList(prevDay(k)).map((x) => x.id), p2 = G.dailyList(prevDay(prevDay(k))).map((x) => x.id); if (d.some((x) => p1.includes(x.id) || p2.includes(x.id))) rep.push(k); }
+    if (n >= 2) { const both = (x) => G.dailyList(x).concat(G.hardList(x)).map((y) => y.id), p1 = both(prevDay(k)), p2 = both(prevDay(prevDay(k))); if (d.some((x) => p1.includes(x.id) || p2.includes(x.id))) rep.push(k); }
     const ph = n >= 1 ? G.hardList(prevDay(k)).map((x) => x.id) : [];
     if (h.some((x) => d.some((y) => y.id === x.id) || ph.includes(x.id))) hov.push(k);
     d.concat(h).forEach((x) => { use[x.id] = (use[x.id] || 0) + 1; });
   }
   check("今日の5問（3年分）：5問・詐欺3〜4とふつうの連絡1〜2・手口を重ねない・難しさ1〜2", bad.length === 0, bad.slice(0, 5).join(","));
   check("上級（3年分）：5問・詐欺3〜4とふつうの連絡1〜2・手口を重ねない・難しさ2〜3", hbad.length === 0, hbad.slice(0, 5).join(","));
-  check("今日の5問に、前の2日に出た問題は出ない（3年分）", rep.length === 0, rep.slice(0, 5).join(","));
+  check("今日の5問に、前の2日の今日の5問・上級に出た問題は出ない（3年分。2026-11-07 CodeRabbit）", rep.length === 0, rep.slice(0, 5).join(","));
   check("上級は、今日の5問と前の日の上級に出た問題を出さない（3年分）", hov.length === 0, hov.slice(0, 5).join(","));
   const never = D.TPL.filter((t) => !use[t.id]).map((t) => t.id);
   check("3年のうちに、どの問題も1回以上出る（かたよらない）", never.length === 0, never.join(","));
@@ -204,8 +204,9 @@ try {
   // 上級：コツなし・まちがいもまぜる
   await page.click("#go-h");
   check("上級：見分けるコツが無い", (await page.locator("#coach").count()) === 0 && (await page.textContent("header")).includes("上級"));
-  const marks = [];
-  for (let i = 0; i < 5; i++) { const c = await answer(page, i === 0 ? "miss" : i === 1 ? "half" : "perfect"); marks.push(c.scam); const v = await page.textContent("#after"); if (i === 0) check("逆を選ぶと×の見出しが出る", v.includes("×")); if (i === 1) check(c.scam ? "詐欺と見抜いて選び方がちがうと△" : "ふつうの連絡を「だいじょうぶ」で○", c.scam ? v.includes("△") : v.includes("○")); await page.click("#next"); }
+  const marks = []; let half = false;
+  for (let i = 0; i < 5; i++) { const sc = (await curS(page)).scam, how = i === 0 ? "miss" : !half && sc ? ((half = true), "half") : "perfect"; const c = await answer(page, how); marks.push(c.scam); const v = await page.textContent("#after"); if (i === 0) check("逆を選ぶと×の見出しが出る", v.includes("×")); if (how === "half") check("詐欺と見抜いて選び方がちがうと△", v.includes("△")); await page.click("#next"); }
+  check("点は ○2点・△1点・×0点（×1・△1・○3で 7点／10点。2026-11-07 CodeRabbit）", half && (await page.textContent(".big")).includes("7点／10点"), await page.textContent(".big"));
   check("上級の記録は今日の5問と別に付き、Ko-fi の1行は出ない（全問○でない）", await page.evaluate(() => { const g = window.__sg, s = g.load(); return !!s.hdays[g.todayKey()] && !!s.days[g.todayKey()]; }) && (await page.locator(".kofi").count()) === 0 && /🟥/.test(await page.textContent(".share")));
   await page.click("#back");
   // 練習：何度でも・記録を増やさない
@@ -229,6 +230,10 @@ try {
   check("実績：取ったものとまだのもの（進み具合）が出る", (await page.locator(".achs .got").count()) >= 2 && (await page.locator(".achs i").count()) >= 1);
   await page.close();
 
+  { const ph = await newPage(); await closeHow(ph); await ph.evaluate(() => window.__sg.start("h"));
+    check("今日の5問を終える前は、上級を始めない（別のタブの古い画面からも。2026-11-07 CodeRabbit）", (await ph.evaluate(() => !window.__sg.load().runs.h)) && (await ph.locator("#go-d").count()) === 1);
+    check("届いたメッセージ（差出人と本文）も読み上げの対象", (await ph.evaluate(() => { window.__sg.start("d"); return !!document.querySelector(".msg[data-a11y-say]"); })));
+    await ph.close(); }
   // 練習中に今日の途中を消さない
   { const pp = await newPage(); await closeHow(pp); await pp.click("#go-d"); await answer(pp, "perfect"); await pp.click("#next"); await pp.click("#back");
     await pp.click("#go-p"); await pp.click('[data-t="all"]'); await answer(pp, "perfect"); await pp.click("#back");

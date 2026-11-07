@@ -363,6 +363,7 @@ const achDone = (s) => achList(s).filter((a) => a.done).map((a) => a.name);
 // ---- 画面 ----
 const md = (k) => `${+k.slice(5, 7)}/${+k.slice(8, 10)}`;
 function toast(t) { const d = document.createElement("div"); d.className = "toast"; d.setAttribute("role", "status"); d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 1800); }
+const calm = () => !!(window.A11y && A11y.on("calm")); // 見やすさの「動きを減らす」
 const buzz = (n = 12) => { try { navigator.vibrate && navigator.vibrate(n); } catch (e) {} };
 const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 const footer = () => `<footer><a href="#" id="f-how">遊び方</a><a href="#" data-a11y-open>見やすさ</a><a href="#" data-hk>引き継ぎ</a><a href="${FEEDBACK}" target="_blank" rel="noopener">感想を送る</a><a href="https://ko-fi.com/satouaaaaa" target="_blank" rel="noopener">Ko-fi で応援</a></footer>`;
@@ -411,7 +412,7 @@ function startRun(mode, opt) {
   const k = todayKey();
   save((s) => {
     if (mode !== "p" && s.runs[mode] && s.runs[mode].date === k) return; // 続きから
-    if ((mode === "d" && s.days[k]) || (mode === "h" && s.hdays[k])) return; // 別のタブで今日の分を終えていたら、もう一度は始めない（ホームに戻る）
+    if ((mode === "d" && s.days[k]) || (mode === "h" && (s.hdays[k] || !s.days[k]))) return; // 上級は今日の5問を終えてから（別のタブの古い画面からも始めない） // 別のタブで今日の分を終えていたら、もう一度は始めない（ホームに戻る）
     const list = mode === "d" ? dailyList(k) : mode === "h" ? hardList(k) : G.practiceList(Math.floor(Math.random() * 2 ** 31), opt);
     s.runs[mode] = { mode, date: k, list, res: [], cur: null, id: Date.now().toString(36), type: mode === "p" ? opt : null };
   });
@@ -451,7 +452,7 @@ function card(p, how) {
     if (how === "rev") { const f = flags(j), mine = cur.sel.includes(j); return `<div class="ln${f ? " flag" : ""}${mine ? " mine" : ""}"${f ? ` data-flag="⚠ ${esc(D.FLAGS[f].name)}"` : ""}>${esc(x[0])}${mine ? "（あなたが選んだ所）" : ""}</div>`; }
     return `<div class="ln">${esc(x[0])}</div>`;
   };
-  return `<div class="msg ${p.ch}" role="group" aria-label="届いた${D.CH[p.ch]}"><div class="top"><span class="ch">${D.CH[p.ch]}</span><span class="from">${esc(p.from)}</span></div>${p.sub ? `<div class="sub">件名：${esc(p.sub)}</div>` : ""}<div class="body ${how}">${p.L.map(ln).join("")}</div></div>`;
+  return `<div class="msg ${p.ch}" role="group" aria-label="届いた${D.CH[p.ch]}" data-a11y-say><div class="top"><span class="ch">${D.CH[p.ch]}</span><span class="from">${esc(p.from)}</span></div>${p.sub ? `<div class="sub">件名：${esc(p.sub)}</div>` : ""}<div class="body ${how}">${p.L.map(ln).join("")}</div></div>`;
 }
 function paint() {
   const p = cur.p;
@@ -516,7 +517,7 @@ function deliver(rec, ng) {
     <button class="main" id="next">${fin ? "結果を見る" : "次の問題へ"}</button></div>`;
   $("next").onclick = play;
   const me = cur;
-  setTimeout(() => { const a = $("after"); if (cur === me && a && a.firstElementChild) a.firstElementChild.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, 60);
+  setTimeout(() => { const a = $("after"); if (cur === me && a && a.firstElementChild) a.firstElementChild.scrollIntoView({ behavior: calm() ? "auto" : "smooth", block: "nearest" }); }, 60);
 }
 function finish() {
   const s = load(), run = s.runs[MODE];
@@ -604,7 +605,7 @@ function dex() {
   bindFooter();
 }
 
-window.__sg = { achList, maxStreak, mode: () => MODE, G, D, dailyList, hardList, probOf, ptsOf, perfect, todayKey, dayNo, shareText, streak, load, valid, flagSet, cur: () => cur, tap: (j) => tap(j), verdict: (ng) => verdict(ng), decide: () => decide(), play: (m) => { if (m) MODE = m; play(); } };
+window.__sg = { achList, maxStreak, mode: () => MODE, G, D, dailyList, hardList, probOf, ptsOf, perfect, todayKey, dayNo, shareText, streak, load, valid, flagSet, cur: () => cur, tap: (j) => tap(j), verdict: (ng) => verdict(ng), decide: () => decide(), play: (m) => { if (m) MODE = m; play(); }, start: (m, o) => startRun(m, o) };
 home();
 if ("serviceWorker" in navigator && location.protocol === "https:" && /github\.io$/.test(location.hostname)) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>

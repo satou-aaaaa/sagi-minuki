@@ -39,7 +39,7 @@
     for (let x = start; x <= k; x = nextDay(x)) {
       if (memo.has(x)) continue;
       const p1 = x > EPOCH ? memo.get(prevDay(x)) : null, p2 = p1 && prevDay(x) > EPOCH ? memo.get(prevDay(prevDay(x))) : null;
-      const avoidD = new Set([...(p1 ? p1.d : []), ...(p2 ? p2.d : [])].map((it) => it.id));
+      const avoidD = new Set([...(p1 ? p1.d.concat(p1.h) : []), ...(p2 ? p2.d.concat(p2.h) : [])].map((it) => it.id)); // 前の2日の今日の5問と上級に出た問題
       const r = rng(seedOf(x + ":d"));
       const d = choose(r, [1, 2], 5, avoidD).map((id, j) => ({ id, s: seedOf(x + ":d:" + j) }));
       const avoidH = new Set([...d.map((it) => it.id), ...(p1 ? p1.h : []).map((it) => it.id)]);
