@@ -237,7 +237,9 @@ try {
   { const pk = await newPage(); await pk.click("#howto-ok");
     check("「わかった」を押した直後に読み直しても、遊び方が出ない（保存は押したときすぐ）", await pk.evaluate(() => window.__sg.load().tut === true)); await pk.reload();
     check("「わかった」のあと開き直しても、遊び方が出ない", (await pk.locator("#howto[open]").count()) === 0); await pk.close(); }
-  { const pe = await newPage(); await pe.keyboard.press("Escape"); await pe.waitForTimeout(100);
+  { let back = 0; for (let i = 0; i < 10; i++) { const pq = await newPage(); await pq.waitForFunction(() => document.getElementById("howto").open); await pq.keyboard.press("Escape"); await pq.reload(); if (await pq.evaluate(() => document.getElementById("howto").open)) back++; await pq.close(); }
+    check("遊び方を Esc で閉じてすぐ読み直しても、遊び方が出ない（10回。cancel でも残す。shared-workflows #196）", back === 0, `${back}/10`); }
+  { const pe = await newPage(); await pe.waitForFunction(() => document.getElementById("howto").open); await pe.keyboard.press("Escape"); await pe.waitForTimeout(100);
     const closed = (await pe.locator("#howto[open]").count()) === 0; await pe.reload();
     check("遊び方を Esc で閉じたあと、開き直しても遊び方が出ない（2026-11-07 shared-workflows #186）", closed && (await pe.locator("#howto[open]").count()) === 0 && (await pe.evaluate(() => window.__sg.load().tut === true)));
     await pe.close(); }
