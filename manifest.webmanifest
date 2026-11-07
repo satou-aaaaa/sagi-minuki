@@ -1,0 +1,30 @@
+{
+  "name": "詐欺みぬき",
+  "short_name": "詐欺みぬき",
+  "description": "届いたSMS・メール・電話が詐欺かどうかを見抜き、あやしい所を見つける1日5問のゲーム",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14202e",
+  "theme_color": "#14202e",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

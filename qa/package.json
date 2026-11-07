@@ -1,0 +1,8 @@
+{
+  "name": "sagi-minuki-qa",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "playwright": "1.64.1"
+  }
+}
