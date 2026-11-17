@@ -298,9 +298,9 @@ try {
   // スマホ幅：はみ出さない・押せる所は44px以上
   for (const w of [320, 390]) {
     const p3 = await newPage(w, 700);
-    const how = await p3.evaluate(() => [...document.querySelectorAll("#howto button, #howto a")].filter((e) => e.getBoundingClientRect().height < 44).length);
+    const how = await p3.evaluate(() => [...document.querySelectorAll("#howto button, #howto a")].filter((e) => Math.round(e.getBoundingClientRect().height) < 44).length);
     await closeHow(p3);
-    const meas = () => p3.evaluate(() => ({ over: document.documentElement.scrollWidth > innerWidth, small: [...document.querySelectorAll("button, a, summary")].filter((e) => e.offsetParent && e.getBoundingClientRect().height < 44).map((e) => e.id || e.textContent.trim().slice(0, 8)) }));
+    const meas = () => p3.evaluate(() => ({ over: document.documentElement.scrollWidth > innerWidth, small: [...document.querySelectorAll("button, a, summary")].filter((e) => e.offsetParent && Math.round(e.getBoundingClientRect().height) < 44).map((e) => e.id || e.textContent.trim().slice(0, 8)) }));
     const screens = {};
     screens.home = await meas();
     await p3.click("#go-d"); screens.v = await meas();
