@@ -52,6 +52,8 @@ button.sub:disabled{opacity:.4;cursor:default}
 .note{color:var(--ink2);font-size:13px;line-height:1.6;margin:0;text-align:center}
 .note a,.srcs a{color:var(--acc);display:inline-flex;align-items:center;min-height:44px}
 .ask{text-align:center;font-size:15px;font-weight:800;margin:0}
+.sure-row{display:flex;justify-content:flex-end;margin:0}
+.sure-res{margin:.3rem 0;font-weight:700}
 /* 届いたメッセージ（種類ごとの見た目。実在の会社やOSの画面はまねない） */
 .msg{background:var(--paper);border:1px solid var(--line);border-radius:18px;overflow:hidden}
 .msg .top{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--paper2);font-size:13px}
@@ -133,7 +135,8 @@ footer a{color:var(--ink2);min-height:44px;display:inline-flex;align-items:cente
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 :is(button,a,summary):focus-visible{outline:2px solid var(--acc)!important;outline-offset:2px}
 </style>
-<script src="transfer.js" data-game="sagi-minuki" data-keys="sagi-minuki-v1"></script><!-- gitleaks:allow 記録の名前（鍵ではない） -->
+<script src="transfer.js" data-game="sagi-minuki" data-keys="sagi-minuki-v1,sagi-minuki-depth"></script><!-- gitleaks:allow 記録の名前（鍵ではない） -->
+<script src="depth.js" data-game="sagi-minuki" data-key="sagi-minuki-depth"></script><!-- gitleaks:allow 記録の名前（鍵ではない） -->
 <!-- a11y:begin 見やすさの設定 v7（shared-workflows template/a11y/a11y.html の写し。ここでは直さず、ひな形を直して全部のゲームへ写す。drift-check と qa/a11y.mjs が同じ中身か見る） -->
 <style id="a11y-css">
 /* だれでも：キーボードで選んだ所に太い枠（WCAG 2.4.7・2.4.13） */
@@ -303,6 +306,7 @@ html.a11y-say body{padding-bottom:calc(64px + env(safe-area-inset-bottom,0px))!i
     <li>「あやしい」を選んだら、あやしい所（文）を全部押して選び、「決定」。</li>
     <li>答えのあとに、手口の名前・見分け方・相談先が出ます。</li>
   </ol>
+  <p>見抜ける自信があるときは、選ぶ前に「🎯 自信あり？」を押します（押さなくても遊べます）。×や△だった問題は、次の日から「復習」にもどってきます。</p>
   <p>あやしい所をぴったり全部選べたら○（2点）、詐欺と見抜けたけれど選び方がちがえば△（1点）、見抜けなければ×。今日の5問はだれでも同じで1日1回。練習は何度でも遊べます。時間制限はありません。</p>
   <p>手口と見分け方は、警察庁・国民生活センター・消費者庁・全国銀行協会・自治体の資料をもとにしています。会社名・人・電話番号・アドレスはすべて架空です（電話番号は●で伏せています）。</p>
   <p>本当に迷ったら、ひとりで決めずに相談を。警察相談専用電話 #9110、消費者ホットライン 188。</p>
@@ -319,6 +323,10 @@ const FEEDBACK = "https://github.com/satou-aaaaa/sagi-minuki/issues/new?template
 const KEY = "sagi-minuki-v1"; // gitleaks:allow 記録の名前（鍵ではない）
 const G = window.SAGI, D = G.D, EPOCH = G.EPOCH;
 const SCAM_TYPES = Object.keys(D.TYPES).filter((t) => t !== "safe");
+// 復習の鍵：「手口|問題の番号|種」（手口で種類をまぜる。鍵だけで同じ問題を作り直せる）
+const tagOf = (it, p) => `${p.t}|${it.id}|${it.s}`;
+const itOf = (tag) => { const [t, id, sd, x] = String(tag).split("|"); if (x !== undefined || !id || !/^\d{1,10}$/.test(sd || "")) return null; const it = { id, s: +sd }; if (!Number.isInteger(it.s)) return null; const p = probOf(it); return p && p.t === t ? it : null; };
+Depth.setValid((t) => !!itOf(t)); // 作り直せない鍵（引き継ぎ・消えた問題）は復習に数えない
 
 // ---- 日付（日本時間。だれでも同じ5問）----
 const prevDay = (k) => new Date(Date.parse(k) - 864e5).toISOString().slice(0, 10);
@@ -368,6 +376,8 @@ function achList(s) {
     ["一週間つづけて", "7日続けて今日の5問を終える", maxStreak(s.days), 7],
     ["フィッシングに強い", "フィッシングを10回見抜く（練習も数える）", s.cnt.phish || 0, 10],
     ["百の見抜き", "詐欺かどうかを100回見抜く", s.total, 100],
+    ["たしかの目", "「🎯 自信あり」で10回当てる", Depth.stats().sureOk, 10],
+    ["覚えなおし", "復習で5問を覚えた", Depth.stats().learned, 5],
   ].map(([name, desc, cur, goal]) => ({ name, desc, cur: Math.min(cur, goal), goal, done: cur >= goal }));
 }
 const achDone = (s) => achList(s).filter((a) => a.done).map((a) => a.name);
@@ -389,16 +399,17 @@ const srcLinks = (keys) => `<details class="coach srcs"><summary>出どころ（
 
 function home() {
   const s = load(), k = todayKey(), done = s.days[k], hdone = s.hdays[k];
-  for (const m of ["d", "h"]) { const r = s.runs[m]; if (doneOf(r)) { MODE = m; return finish(); } }
+  for (const m of ["d", "h", "r"]) { const r = s.runs[m]; if (doneOf(r)) { MODE = m; return finish(); } }
   const nr = nextRank(s.total);
   const rd = s.runs.d && s.runs.d.date === k ? s.runs.d : null, rh = s.runs.h && s.runs.h.date === k ? s.runs.h : null;
-  const known = SCAM_TYPES.filter((t) => (s.cnt[t] || 0) > 0).length;
+  const known = SCAM_TYPES.filter((t) => (s.cnt[t] || 0) > 0).length, rv = Depth.count(), rr = s.runs.r && !doneOf(s.runs.r) ? s.runs.r : null;
   app.innerHTML = `
     <h1 class="title">詐欺みぬき</h1>
     <p class="lead" data-a11y-say>そのメッセージ、詐欺か見抜ける？<br>届いたSMS・メール・電話のあやしい所を見つけよう。<br>だれでも同じ1日5問。練習は何度でも。</p>
     ${done ? `<div class="share">今日の結果　${done.r.map(sq).join("")}</div>` : ""}
     <button class="main" id="go-d">${done ? "今日の結果を見る" : rd ? `続きから（${rd.res.length + 1}問目）` : `今日の5問に挑む <small>#${dayNo(k)}</small>`}</button>
     ${done ? `<button class="main alt" id="go-h">${hdone ? "上級の結果を見る" : rh ? "上級の続きから" : "上級：見分けのコツなし"}</button>` : ""}
+    ${rr ? `<button class="main alt" id="go-r">復習の続きから（${rr.res.length + 1}問目）</button>` : rv ? `<button class="main alt" id="go-r">復習 ${rv}問 <small>見抜けなかった問題がもどってきた</small></button>` : ""}
     <div class="row"><button class="sub" id="go-p">練習（何度でも）</button><button class="sub" id="go-dex">見抜き帳 ${known}/${SCAM_TYPES.length}</button></div>
     <button class="sub" id="go-ach">実績 ${achDone(s).length}/${achList(s).length}</button>
     <div class="stats"><div><b>${streak(s.days)}</b><small>連続の日</small></div><div><b>${Object.keys(s.days).length}</b><small>遊んだ日</small></div><div><b>${s.total}</b><small>見抜いた数</small></div></div>
@@ -407,6 +418,7 @@ function home() {
   $("go-d").onclick = () => (k !== todayKey() ? home() : done ? result("d", k) : startRun("d")); // 画面を開いたまま0時を過ぎたら、今日の状態に描き直す
   if ($("go-h")) $("go-h").onclick = () => (hdone ? result("h", k) : k === todayKey() ? startRun("h") : home()); // 画面を開いたまま0時を過ぎたら、翌日の上級は始めない
   $("go-p").onclick = practiceMenu;
+  if ($("go-r")) $("go-r").onclick = () => startRun("r");
   $("go-dex").onclick = dex;
   $("go-ach").onclick = ach;
   bindFooter();
@@ -423,13 +435,16 @@ function practiceMenu() {
   bindFooter();
 }
 function startRun(mode, opt) {
-  const k = todayKey();
+  const k = todayKey(); let ng = false;
   save((s) => {
+    // 復習：日の来た問題（depth.js）。手口をまぜて多くて10問。今日の記録・連続・Ko-fi には数えない。途中の復習は、日が替わっても続きから
+    if (mode === "r") { const r0 = s.runs.r; if (r0 && !doneOf(r0)) return; const list = Depth.due().map(itOf).filter(Boolean); if (!list.length) { ng = true; return; } s.runs.r = { mode, date: k, list, res: [], cur: null, id: Date.now().toString(36), type: null }; return; }
     if (mode !== "p" && s.runs[mode] && s.runs[mode].date === k) return; // 続きから
     if ((mode === "d" && s.days[k]) || (mode === "h" && (s.hdays[k] || !s.days[k]))) return; // 上級は今日の5問を終えてから（別のタブの古い画面からも始めない） // 別のタブで今日の分を終えていたら、もう一度は始めない（ホームに戻る）
     const list = mode === "d" ? dailyList(k) : mode === "h" ? hardList(k) : G.practiceList(Math.floor(Math.random() * 2 ** 31), opt);
     s.runs[mode] = { mode, date: k, list, res: [], cur: null, id: Date.now().toString(36), type: mode === "p" ? opt : null };
   });
+  if (ng) { toast("今日の復習はありません"); return home(); }
   MODE = mode;
   play();
 }
@@ -444,18 +459,20 @@ function play() {
   const it = run.list[i], p = probOf(it), hard = run.mode === "h";
   if (!p) { toast("問題を読めませんでした"); save((s2) => { if (s2.runs[MODE] && s2.runs[MODE].id === run.id) s2.runs[MODE] = null; }); return home(); }
   const saved = run.cur && run.cur.i === i ? run.cur : null, ok = saved && valid(p, saved);
-  cur = { i, date: run.date, id: run.id, it, p, hard, step: ok ? saved.step : "v", sel: ok ? saved.sel.slice() : [] };
-  const label = run.mode === "h" ? "上級" : run.mode === "p" ? "練習" : "今日の5問";
+  cur = { i, date: run.date, id: run.id, it, p, hard, tag: tagOf(it, p), step: ok ? saved.step : "v", sel: ok ? saved.sel.slice() : [], jd: ok && saved.jd && saved.jd.sure === true ? { sure: true, ok: saved.jd.ok === true, text: "" } : null };
+  const label = run.mode === "h" ? "上級" : run.mode === "p" ? "練習" : run.mode === "r" ? "復習" : "今日の5問";
   app.innerHTML = `
     <header><button class="icon" id="back" aria-label="もどる">←</button>
       <div class="dots" aria-label="${i + 1}問目／${run.list.length}問">${run.list.map((_, j) => `<i class="${j < i ? "done" : j === i ? "on" : ""}"></i>`).join("")}</div>
       <span style="font-size:13px;color:var(--ink2)">${label} ${i + 1}/${run.list.length}</span></header>
     <p class="ask" id="ask" data-a11y-say role="status"></p>
     <div id="card"></div>
+    <div class="sure-row" id="surerow">${Depth.sureHtml()}</div>
     <div id="ctl"></div>
     ${hard ? "" : `<details class="coach" id="coach"><summary>見分けるコツ</summary><ul><li>リンクを押させる・IDや暗証番号を入れさせる</li><li>「今日中」「24時間以内」と急がせる</li><li>お金の話（ATM・電子マネー・受け取りに行く・先に保証金）</li><li>LINEなど別のアプリに移らせる</li><li>「必ずもうかる」「お金が戻る」などのうまい話</li><li>書かれた番号に電話させる・突然の警告</li></ul></details>`}
     <div id="after" aria-live="polite"></div>`;
   $("back").onclick = home;
+  Depth.bindSure(cur.tag, cur.id + "|" + cur.i);
   paint();
   window.scrollTo(0, 0);
 }
@@ -470,6 +487,7 @@ function card(p, how) {
 }
 function paint() {
   const p = cur.p;
+  if ($("surerow")) $("surerow").hidden = cur.step !== "v"; // 自信は「あやしい？」に答える前だけ
   if (cur.step === "v") {
     $("ask").textContent = `この${D.CH[p.ch]}は、詐欺だと思う？`;
     $("card").innerHTML = card(p, "view");
@@ -493,10 +511,14 @@ function valid(p, c) {
   return c.sel.every((j) => Number.isInteger(j) && j >= 0 && j < p.L.length) && new Set(c.sel).size === c.sel.length;
 }
 const same = (r) => r && cur && r.date === cur.date && r.id === cur.id && Array.isArray(r.res) && r.res.length === cur.i && JSON.stringify(r.list[cur.i]) === JSON.stringify(cur.it);
-function keep() { save((s) => { const r = s.runs[MODE]; if (same(r)) r.cur = { i: cur.i, step: cur.step, sel: cur.sel.slice() }; }); }
+function keep() { save((s) => { const r = s.runs[MODE]; if (same(r)) { if (!cur.jd && r.cur && r.cur.i === cur.i && r.cur.jd) cur.jd = r.cur.jd; r.cur = { i: cur.i, step: cur.step, sel: cur.sel.slice(), jd: cur.jd }; } }); }
 function tap(j) { if (cur.step !== "f") return; const k = cur.sel.indexOf(j); if (k >= 0) cur.sel.splice(k, 1); else cur.sel.push(j); buzz(8); keep(); paint(); const b = $("card").querySelector(`[data-j="${j}"]`); if (b) b.focus(); }
+// この回の「自信あり」の数と当たり（結果の画面に出す。1問につき1回だけ数える）
+function sureCount(ok) { const q = cur.i + ":" + cur.tag; save((s) => { const r = s.runs[MODE]; if (!same(r) || r.dsq === q) return; r.dsq = q; r.ds = r.ds || { n: 0, ok: 0 }; r.ds.n++; if (ok) r.ds.ok++; }); }
 function verdict(ng) {
   if (cur.step !== "v") return;
+  if (!same(load().runs[MODE])) { toast("別の画面で先に進んでいます"); return play(); }
+  { const jd = Depth.judge(ng === cur.p.scam); if (jd && jd.sure) { cur.jd = jd; sureCount(jd.ok); } } // 自信は「詐欺か」の見立てで決める
   if (ng && cur.p.scam) { cur.step = "f"; cur.sel = []; keep(); paint(); return; }
   deliver({ v: ng === cur.p.scam ? 1 : 0, f: ng === cur.p.scam ? 1 : 0, k: cur.p.scam ? 1 : 0 }, ng);
 }
@@ -509,20 +531,23 @@ function decide() {
 function deliver(rec, ng) {
   if (cur.step === "done") return;
   if (!same(load().runs[MODE])) { toast("別の画面で先に進んでいます"); return play(); }
-  const p = cur.p;
+  const p = cur.p, nm = p.scam ? D.TYPES[p.t].name : "ふつうの連絡";
+  if (!perfect(rec)) Depth.mark(cur.tag, 1, nm); // 見抜けなかった・あやしい所がずれた問題は、その時に復習へ（同じ問題か確かめたあと）
   let saved = false;
   const s = save((s) => { const r = s.runs[MODE]; if (!same(r)) return; saved = true; r.res.push(rec); r.cur = null; s.seen[p.t] = (s.seen[p.t] || 0) + 1; if (rec.v) { s.total++; s.cnt[p.t] = (s.cnt[p.t] || 0) + 1; } if (perfect(rec)) s.perf[p.t] = (s.perf[p.t] || 0) + 1; });
   if (!saved) { toast("別の画面で先に進んでいます"); return play(); }
+  if (perfect(rec)) Depth.mark(cur.tag, 0, nm); // ○なら、復習中の問題を次の間へ
   cur.step = "done"; buzz(rec.v ? [10, 40, 10] : 30);
   const r = s.runs[MODE], fin = r && r.res.length >= r.list.length, ty = D.TYPES[p.t];
   const fl = [...new Set(p.L.map((x) => x[1]).filter(Boolean))];
   const head = !p.scam ? (rec.v ? "○ 見抜いた！ ふつうの連絡です" : "× これは、ふつうの連絡でした") : !rec.v ? "× 詐欺でした" : rec.f ? "○ 見抜いた！ あやしい所もぴったり" : "△ 詐欺と見抜けた（あやしい所はもう一歩）";
   $("ask").textContent = p.scam ? "あやしい所に赤い枠をつけました。" : "あやしい所のない連絡でした。";
   $("card").innerHTML = card(p, "rev");
-  $("ctl").innerHTML = "";
+  $("ctl").innerHTML = ""; if ($("surerow")) $("surerow").hidden = true;
   if ($("coach")) $("coach").hidden = true;
   $("after").innerHTML = `<div class="verdict ${rec.v ? (perfect(rec) ? "ok" : "") : "ng"}" role="status">
     <div class="hd" data-a11y-say>${head}</div>
+    ${cur.jd && cur.jd.sure ? `<p class="sure-res">${cur.jd.ok ? "🎯 自信ありで当てた" : "🎯 自信ありでまちがえた。ここを覚えよう"}</p>` : ""}
     <h3 data-a11y-say>${p.scam ? `手口：${esc(ty.name)}` : "ふつうの連絡"}</h3>
     <p data-a11y-say>${esc(p.scam ? ty.desc : p.why)}</p>
     ${p.scam ? `<ul class="tips" data-a11y-say>${fl.map((f) => `<li><b>⚠ ${esc(D.FLAGS[f].name)}</b>${esc(D.FLAGS[f].tip)}</li>`).join("")}</ul>` : `<p class="note">ただし、少しでも気になったら、メッセージの中の番号やリンクでなく、自分で調べた公式の窓口で確かめましょう。</p>`}
@@ -533,9 +558,11 @@ function deliver(rec, ng) {
   const me = cur;
   setTimeout(() => { const a = $("after"); if (cur === me && a && a.firstElementChild) a.firstElementChild.scrollIntoView({ behavior: calm() ? "auto" : "smooth", block: "nearest" }); }, 60);
 }
+let JUST = null; // 回を終えた直後の結果なら、その回の「自信あり」の数と当たり
 function finish() {
   const s = load(), run = s.runs[MODE];
   if (!run) return home();
+  JUST = run.ds || null;
   let first = false;
   const rec = recOf(run);
   let fresh = [];
@@ -546,7 +573,7 @@ function finish() {
     // 別のタブで同じモードの新しい回が始まっていたら、それは消さない
     const c = s2.runs[MODE]; if (c && c.date === run.date && c.id === run.id) s2.runs[MODE] = null;
   });
-  if (run.mode === "p") return result("p", run.date, false, { list: run.list, type: run.type, ...rec }, fresh);
+  if (run.mode === "p" || run.mode === "r") return result(run.mode, run.date, false, { list: run.list, type: run.type, ...rec }, fresh);
   result(run.mode, run.date, first, undefined, fresh);
 }
 // 共有の文：メッセージの中身・手口（答え）は出さない。○🟩・△🟨・×🟥
@@ -558,19 +585,20 @@ function shareText(mode, k, rec) {
 }
 function untilNext() { const n = jstNow(), ms = 864e5 - (n.getTime() % 864e5); return `${Math.floor(ms / 36e5)}時間${Math.floor((ms % 36e5) / 6e4)}分`; }
 function result(mode, k, first, prec, fresh) {
-  const s = load();
-  const list = mode === "p" ? prec.list : mode === "d" ? dailyList(k) : hardList(k);
-  const rec = mode === "p" ? prec : (mode === "d" ? s.days : s.hdays)[k];
+  const s = load(), pr = mode === "p" || mode === "r", ds = JUST || { n: 0, ok: 0 }; JUST = null; // 練習・復習は今日の記録に入れない。自信の当たりは終えた直後だけ出す
+  const list = pr ? prec.list : mode === "d" ? dailyList(k) : hardList(k);
+  const rec = pr ? prec : (mode === "d" ? s.days : s.hdays)[k];
   if (!rec) return home();
   const all = rec.r.every(perfect), text = shareText(mode, k, rec);
-  const showKofi = first && mode !== "p" && all && !s.kofi[k + mode];
+  const showKofi = first && !pr && all && !s.kofi[k + mode];
   if (showKofi) save((s2) => { s2.kofi[k + mode] = 1; });
   app.innerHTML = `
-    <header><button class="icon" id="back" aria-label="ホームへ">←</button><h1>詐欺みぬき<small>${mode === "d" ? `今日の5問 #${dayNo(k)}` : mode === "h" ? "上級" : "練習"}</small></h1><span></span></header>
+    <header><button class="icon" id="back" aria-label="ホームへ">←</button><h1>詐欺みぬき<small>${mode === "d" ? `今日の5問 #${dayNo(k)}` : mode === "h" ? "上級" : mode === "r" ? "復習" : "練習"}</small></h1><span></span></header>
     <p class="big" data-a11y-say>${all ? "全問、見抜いた！" : `${scoreOf(rec)}点／${rec.r.length * 2}点`}</p>
+    ${ds.n ? `<p class="note" id="surestat">🎯 自信ありの当たり ${ds.ok}/${ds.n}</p>` : ""}
     ${fresh && fresh.length ? `<div class="newach">新しい実績：${fresh.map(esc).join("・")}</div>` : ""}
     <div class="res">${list.map((it, j) => { const p = probOf(it), r = rec.r[j]; if (!p || !r) return ""; return `<div><span>${esc(p.scam ? D.TYPES[p.t].name : "ふつうの連絡")}<br><small>${D.CH[p.ch]}・${esc(p.from)}</small></span><span class="mark" aria-label="${markLabel(r)}">${markOf(r)}</span></div>`; }).join("")}</div>
-    ${mode !== "p" ? `<div class="share">${esc(text)}</div>
+    ${!pr ? `<div class="share">${esc(text)}</div>
     <button class="main" id="share">結果をシェア</button>
     <div class="shares"><a id="toX" target="_blank" rel="noopener">Xで投稿</a><a id="toLine" target="_blank" rel="noopener">LINEで送る</a><button id="copy">コピー</button></div>
     <p class="note">🟩見抜いた（あやしい所もぴったり）　🟨見抜けた　🟥見抜けなかった<br>次の5問まで あと <b>${untilNext()}</b></p>` : ""}
@@ -584,7 +612,7 @@ function result(mode, k, first, prec, fresh) {
   $("go-p").onclick = mode === "p" ? () => startRun("p", prec.type || "all") : practiceMenu;
   $("go-dex").onclick = dex;
   if ($("go-h")) $("go-h").onclick = () => (k === todayKey() ? startRun("h") : home()); // 画面を開いたまま0時を過ぎたら、翌日の上級は始めない
-  if (mode !== "p") {
+  if (!pr) {
     const withUrl = text + "\n" + SITE;
     $("toX").href = "https://twitter.com/intent/tweet?text=" + encodeURIComponent(withUrl);
     $("toLine").href = "https://line.me/R/share?text=" + encodeURIComponent(withUrl);
@@ -619,7 +647,7 @@ function dex() {
   bindFooter();
 }
 
-window.__sg = { achList, maxStreak, mode: () => MODE, G, D, dailyList, hardList, probOf, ptsOf, perfect, todayKey, dayNo, shareText, streak, load, valid, flagSet, cur: () => cur, tap: (j) => tap(j), verdict: (ng) => verdict(ng), decide: () => decide(), play: (m) => { if (m) MODE = m; play(); }, start: (m, o) => startRun(m, o) };
+window.__sg = { sureCount: (ok) => sureCount(ok), itOf, achList, maxStreak, mode: () => MODE, G, D, dailyList, hardList, probOf, ptsOf, perfect, todayKey, dayNo, shareText, streak, load, valid, flagSet, cur: () => cur, tap: (j) => tap(j), verdict: (ng) => verdict(ng), decide: () => decide(), play: (m) => { if (m) MODE = m; play(); }, start: (m, o) => startRun(m, o) };
 home();
 if ("serviceWorker" in navigator && location.protocol === "https:" && /github\.io$/.test(location.hostname)) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
