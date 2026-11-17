@@ -402,14 +402,14 @@ function home() {
   for (const m of ["d", "h", "r"]) { const r = s.runs[m]; if (doneOf(r)) { MODE = m; return finish(); } }
   const nr = nextRank(s.total);
   const rd = s.runs.d && s.runs.d.date === k ? s.runs.d : null, rh = s.runs.h && s.runs.h.date === k ? s.runs.h : null;
-  const known = SCAM_TYPES.filter((t) => (s.cnt[t] || 0) > 0).length, rv = Depth.count(), rr = s.runs.r && !doneOf(s.runs.r) ? s.runs.r : null;
+  const known = SCAM_TYPES.filter((t) => (s.cnt[t] || 0) > 0).length, rv = Depth.count();
   app.innerHTML = `
     <h1 class="title">詐欺みぬき</h1>
     <p class="lead" data-a11y-say>そのメッセージ、詐欺か見抜ける？<br>届いたSMS・メール・電話のあやしい所を見つけよう。<br>だれでも同じ1日5問。練習は何度でも。</p>
     ${done ? `<div class="share">今日の結果　${done.r.map(sq).join("")}</div>` : ""}
     <button class="main" id="go-d">${done ? "今日の結果を見る" : rd ? `続きから（${rd.res.length + 1}問目）` : `今日の5問に挑む <small>#${dayNo(k)}</small>`}</button>
     ${done ? `<button class="main alt" id="go-h">${hdone ? "上級の結果を見る" : rh ? "上級の続きから" : "上級：見分けのコツなし"}</button>` : ""}
-    ${rr ? `<button class="main alt" id="go-r">復習の続きから（${rr.res.length + 1}問目）</button>` : rv ? `<button class="main alt" id="go-r">復習 ${rv}問 <small>見抜けなかった問題がもどってきた</small></button>` : ""}
+    ${s.runs.r && !doneOf(s.runs.r) ? `<button class="main alt" id="go-r">復習の続きから（${s.runs.r.res.length + 1}問目）</button>` : rv ? `<button class="main alt" id="go-r">復習 ${rv}問 <small>見抜けなかった問題がもどってきた</small></button>` : ""}
     <div class="row"><button class="sub" id="go-p">練習（何度でも）</button><button class="sub" id="go-dex">見抜き帳 ${known}/${SCAM_TYPES.length}</button></div>
     <button class="sub" id="go-ach">実績 ${achDone(s).length}/${achList(s).length}</button>
     <div class="stats"><div><b>${streak(s.days)}</b><small>連続の日</small></div><div><b>${Object.keys(s.days).length}</b><small>遊んだ日</small></div><div><b>${s.total}</b><small>見抜いた数</small></div></div>
