@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { checkTransfer } from "./transfer-check.mjs";
 import { checkSwStall } from "./sw-check.mjs";
+import { checkDepth } from "./depth-check.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const url = pathToFileURL(path.join(root, "index.html")).href;
@@ -298,9 +299,9 @@ try {
   // スマホ幅：はみ出さない・押せる所は44px以上
   for (const w of [320, 390]) {
     const p3 = await newPage(w, 700);
-    const how = await p3.evaluate(() => [...document.querySelectorAll("#howto button, #howto a")].filter((e) => e.getBoundingClientRect().height < 44).length);
+    const how = await p3.evaluate(() => [...document.querySelectorAll("#howto button, #howto a")].filter((e) => Math.round(e.getBoundingClientRect().height) < 44).length);
     await closeHow(p3);
-    const meas = () => p3.evaluate(() => ({ over: document.documentElement.scrollWidth > innerWidth, small: [...document.querySelectorAll("button, a, summary")].filter((e) => e.offsetParent && e.getBoundingClientRect().height < 44).map((e) => e.id || e.textContent.trim().slice(0, 8)) }));
+    const meas = () => p3.evaluate(() => ({ over: document.documentElement.scrollWidth > innerWidth, small: [...document.querySelectorAll("button, a, summary")].filter((e) => e.offsetParent && Math.round(e.getBoundingClientRect().height) < 44).map((e) => e.id || e.textContent.trim().slice(0, 8)) }));
     const screens = {};
     screens.home = await meas();
     await p3.click("#go-d"); screens.v = await meas();
@@ -317,6 +318,60 @@ try {
     check(`幅${w}px：ホーム・問題・文を選ぶ・答え・結果・練習・見抜き帳・実績で横にはみ出さず、押せる所は高さ44px以上`, ng.length === 0 && how === 0, ng.join(" "));
     await p3.close();
   }
+  // 1問を深くする（shared-workflows routines/game-dev.md「1問を深くする」）：自信をかける・復習。2つ目の判断は、もとからある「あやしい所を選ぶ」なので2段目は足さない
+  {
+    const q = await newPage(); await closeHow(q);
+    const items = await q.evaluate(() => { const T = window.__sg.D.TPL, sc = T.filter((t) => t.t !== "safe"), sf = T.find((t) => t.t === "safe"); return [{ id: sc[0].id, s: 11 }, { id: sf.id, s: 12 }, { id: sc[1].id, s: 13 }]; });
+    const tag0 = await q.evaluate((it) => { const p = window.__sg.probOf(it); return `${p.t}|${it.id}|${it.s}`; }, items[0]);
+    check("復習の鍵は「手口|問題|種」で、鍵だけで同じ問題を作り直せる・形の合わない鍵は作らない", await q.evaluate(([t, it]) => { const g = window.__sg, b = g.itOf(t); return !!b && b.id === it.id && b.s === it.s && !g.itOf("safe|" + it.id + "|" + it.s) && !g.itOf("x|nai|1") && !g.itOf("constructor") && !g.itOf(t + "|1"); }, [tag0, items[0]]));
+    await q.evaluate((list) => { const g = window.__sg, s = g.load(); s.runs.p = { mode: "p", date: g.todayKey(), list, res: [], cur: null, id: "dp", type: "all" }; localStorage.setItem("sagi-minuki-v1", JSON.stringify(s)); Depth.runStart(); g.play("p"); }, items); // gitleaks:allow 記録の名前（鍵ではない）
+    const sb = await q.$eval("#dp-sure", (b) => [Math.round(b.getBoundingClientRect().height), b.getAttribute("aria-pressed"), b.textContent]);
+    check("自信のボタン：高さ44px以上・はじめは押していない", sb[0] >= 44 && sb[1] === "false", sb.join(","));
+    await q.click("#dp-sure");
+    check("自信のボタンを押すと ✓ が出る（色だけで分けない）", (await q.getAttribute("#dp-sure", "aria-pressed")) === "true" && (await q.textContent("#dp-sure")).includes("✓"));
+    await answer(q, "miss");
+    check("自信ありで見抜けないと「自信ありでまちがえた」と出る・答えたあとは自信のボタンを隠す", (await q.textContent(".verdict")).includes("自信ありでまちがえた") && await q.locator("#surerow:not([hidden])").count() === 0);
+    check("見抜けなかったその時に復習へ入る", await q.evaluate((t) => { const d = JSON.parse(localStorage.getItem("sagi-minuki-depth") || "{}"); return !!(d.rv && d.rv[t]); }, tag0)); // gitleaks:allow 記録の名前（鍵ではない）
+    await q.click("#next");
+    await q.click("#dp-sure"); await answer(q, "perfect");
+    check("自信ありで当てると「自信ありで当てた」と出る", (await q.textContent(".verdict")).includes("自信ありで当てた"));
+    await q.click("#next");
+    await q.click("#say-ng");
+    check("「あやしい」を選んで、あやしい所を選ぶ段になったら、自信のボタンは隠れる", await q.locator("#surerow:not([hidden])").count() === 0);
+    { const c = await curS(q); for (const j of c.flags) await q.click(`#card .ln[data-j="${j}"]`); await q.click("#decide"); }
+    await q.click("#next"); await q.waitForTimeout(150);
+    check("終えた直後の結果に「自信ありの当たり」が出る", (await q.textContent("#surestat")).includes("1/2"));
+    const dp = await q.evaluate(() => JSON.parse(localStorage.getItem("sagi-minuki-depth") || "{}")); // gitleaks:allow 記録の名前（鍵ではない）
+    check("×・△の問題だけ復習に入る（○は入らない）", Object.keys(dp.rv || {}).join() === tag0, Object.keys(dp.rv || {}).join(","));
+    const n = await q.evaluate((list) => { const g = window.__sg, s = g.load(); s.runs.p = { mode: "p", date: g.todayKey(), list, res: [], cur: null, id: "sc1", type: "all" }; localStorage.setItem("sagi-minuki-v1", JSON.stringify(s)); g.play("p"); g.sureCount(true); g.sureCount(true); return g.load().runs.p.ds; }, items); // gitleaks:allow 記録の名前（鍵ではない）
+    check("「自信あり」の数は1問につき1回だけ（2つのタブで同じ問題を当てても2回足さない）", n && n.n === 1 && n.ok === 1, JSON.stringify(n));
+    await q.evaluate(() => { const s = window.__sg.load(); s.runs.p = null; localStorage.setItem("sagi-minuki-v1", JSON.stringify(s)); const d = JSON.parse(localStorage.getItem("sagi-minuki-depth")); for (const k in d.rv) d.rv[k].due = "2026-01-01"; localStorage.setItem("sagi-minuki-depth", JSON.stringify(d)); }); // gitleaks:allow 記録の名前（鍵ではない）
+    await q.reload(); await q.waitForTimeout(150);
+    check("日の来た復習があると、ホームに「復習 1問」", (await q.textContent("#go-r")).includes("復習 1問"));
+    const before = await q.evaluate(() => window.__sg.load());
+    await q.click("#go-r");
+    check("復習の画面は「復習」と出る・同じ問題", (await q.textContent("header")).includes("復習") && await q.evaluate(() => { const c = window.__sg.cur(); return `${c.p.t}|${c.it.id}|${c.it.s}`; }) === tag0);
+    await answer(q, "perfect"); await q.click("#next"); await q.waitForTimeout(150);
+    const after = await q.evaluate(() => window.__sg.load()), dp2 = await q.evaluate(() => JSON.parse(localStorage.getItem("sagi-minuki-depth"))); // gitleaks:allow 記録の名前（鍵ではない）
+    check("復習を終えると結果は「復習」・今日の記録・連続は増えない・シェアと Ko-fi は出ない", (await q.textContent("h1")).includes("復習") && JSON.stringify(after.days) === JSON.stringify(before.days) && JSON.stringify(after.hdays) === JSON.stringify(before.hdays) && await q.locator("#share").count() === 0 && await q.locator(".kofi").count() === 0);
+    check("復習で○になると、次は3日後へ進む", Object.values(dp2.rv).every((x) => x.s === 1 && x.due > new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)));
+    await q.reload(); await q.waitForTimeout(150);
+    check("復習を終えたら、ホームの「復習」は消える", await q.locator("#go-r").count() === 0);
+    await q.evaluate(() => { const d = JSON.parse(localStorage.getItem("sagi-minuki-depth")); d.rv["phish|nai|1"] = { s: 0, due: "2026-01-01", t: 1 }; d.rv["constructor"] = { s: 0, due: "2026-01-01", t: 2 }; localStorage.setItem("sagi-minuki-depth", JSON.stringify(d)); }); // gitleaks:allow 記録の名前（鍵ではない）
+    await q.reload(); await q.waitForTimeout(150);
+    check("作り直せない鍵（無い問題・constructor）は復習に数えず、ホームも出る", await q.locator("#go-d").count() === 1 && await q.locator("#go-r").count() === 0);
+    // 復習の途中で閉じて、日が替わっても、ホームの「復習の続きから」で戻れる（あやしい所を選ぶ段のまま）
+    await q.evaluate((t) => { const d = JSON.parse(localStorage.getItem("sagi-minuki-depth")); d.rv = { [t]: { s: 0, due: "2026-01-01", t: 3 } }; localStorage.setItem("sagi-minuki-depth", JSON.stringify(d)); }, tag0); // gitleaks:allow 記録の名前（鍵ではない）
+    await q.reload(); await q.waitForTimeout(150); await q.click("#go-r"); await q.click("#say-ng");
+    await q.evaluate(() => { const s = window.__sg.load(); s.runs.r.date = "2026-01-02"; localStorage.setItem("sagi-minuki-v1", JSON.stringify(s)); }); // gitleaks:allow 記録の名前（鍵ではない）
+    await q.reload(); await q.waitForTimeout(150);
+    check("復習の途中で閉じて日が替わっても、ホームの「復習の続きから」で戻れる", ((await q.locator("#go-r").count()) ? await q.textContent("#go-r") : "").includes("続きから"));
+    if (await q.locator("#go-r").count()) { await q.click("#go-r"); check("復習の続きは同じ問題・あやしい所を選ぶ段のまま", (await curS(q)).step === "f"); }
+    { const a = await q.evaluate(() => { const d = JSON.parse(localStorage.getItem("sagi-minuki-depth")); d.sure = 12; d.sureOk = 10; d.learned = 5; localStorage.setItem("sagi-minuki-depth", JSON.stringify(d)); return window.__sg.achList(window.__sg.load()).filter((x) => x.done).map((x) => x.name); }); // gitleaks:allow 記録の名前（鍵ではない）
+      check("実績「たしかの目」（自信ありで10回当てる）・「覚えなおし」（復習で5問覚えた）が取れる", a.includes("たしかの目") && a.includes("覚えなおし"), a.join(",")); }
+    await q.close();
+  }
+
   // 直した不具合がもどっていないか（保存できないときの帯・知らせ・ヒント・とことん・ホームの題）
   { // 知らせ（.toast）は下のボタンを押すじゃまをしない
     const pt = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -333,8 +388,10 @@ try {
     await pw.click("#f-how"); await pw.click("#howto-ok");
     check("保存できるようになって次に保存すると、帯 #savewarn が消える", (await pw.locator("#savewarn").count()) === 0);
     await pw.close(); }
+  { // 深さの部品（shared-workflows template/qa/depth-check.mjs）
+    const e = await checkDepth(read("depth.js")); check("depth.js（自信をかける・復習）の動き", e.length === 0, e.join(" / ")); }
   { // 引き継ぎコード（shared-workflows template/qa/transfer-check.mjs）
-    const sample = { "sagi-minuki-v1": JSON.stringify({ v: 1, tut: true, days: { "2026-11-07": { r: [{ v: 1, f: 1, k: 1 }] } }, hdays: {}, cnt: { phish: 3 }, seen: {}, perf: {}, total: 3, runs: {}, kofi: {}, ach: {}, t: 1 }) }; // gitleaks:allow 記録の名前（鍵ではない）
+    const sample = { "sagi-minuki-v1": JSON.stringify({ v: 1, tut: true, days: { "2026-11-07": { r: [{ v: 1, f: 1, k: 1 }] } }, hdays: {}, cnt: { phish: 3 }, seen: {}, perf: {}, total: 3, runs: {}, kofi: {}, ach: {}, t: 1 }), "sagi-minuki-depth": JSON.stringify({ v: 1, rv: { "phish|x|1": { s: 1, due: "2026-11-20", t: 5 } } }) }; // gitleaks:allow 記録の名前（鍵ではない）。復習の記録も引き継ぐかを見る
     await checkTransfer({ browser, url, game: "sagi-minuki", sample, check, open: async (pg) => { await pg.evaluate(() => { const d = document.getElementById("howto"); if (d.open) d.close(); }); } });
   }
 } catch (e) {
