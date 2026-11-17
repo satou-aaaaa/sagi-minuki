@@ -317,6 +317,22 @@ try {
     check(`幅${w}px：ホーム・問題・文を選ぶ・答え・結果・練習・見抜き帳・実績で横にはみ出さず、押せる所は高さ44px以上`, ng.length === 0 && how === 0, ng.join(" "));
     await p3.close();
   }
+  // 直した不具合がもどっていないか（保存できないときの帯・知らせ・ヒント・とことん・ホームの題）
+  { // 知らせ（.toast）は下のボタンを押すじゃまをしない
+    const pt = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await pt.goto(url);
+    check("知らせ（.toast）の pointer-events が none（出ているあいだも下のボタンを押せる）", (await pt.evaluate(() => { const d = document.createElement("div"); d.className = "toast"; d.textContent = "x"; document.body.appendChild(d); const v = getComputedStyle(d).pointerEvents; d.remove(); return v; })) === "none");
+    await pt.close(); }
+  { // 保存に失敗したら帯 #savewarn で知らせ続け、保存できたら消す（黙って記録が消えないように）
+    const pw = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    pw.on("pageerror", (e) => errors.push(e.message));
+    await pw.addInitScript(() => { window.__origSetItem = Storage.prototype.setItem; Storage.prototype.setItem = () => { throw new Error("blocked"); }; });
+    await pw.goto(url); await pw.click("#howto-ok"); await pw.waitForTimeout(2000);
+    check("保存できないときは、帯 #savewarn がちょうど1つ出て、2秒たっても残る", (await pw.locator("#savewarn").count()) === 1, await pw.locator("#savewarn").count());
+    await pw.evaluate(() => { Storage.prototype.setItem = window.__origSetItem; });
+    await pw.click("#f-how"); await pw.click("#howto-ok");
+    check("保存できるようになって次に保存すると、帯 #savewarn が消える", (await pw.locator("#savewarn").count()) === 0);
+    await pw.close(); }
   { // 引き継ぎコード（shared-workflows template/qa/transfer-check.mjs）
     const sample = { "sagi-minuki-v1": JSON.stringify({ v: 1, tut: true, days: { "2026-11-07": { r: [{ v: 1, f: 1, k: 1 }] } }, hdays: {}, cnt: { phish: 3 }, seen: {}, perf: {}, total: 3, runs: {}, kofi: {}, ach: {}, t: 1 }) }; // gitleaks:allow 記録の名前（鍵ではない）
     await checkTransfer({ browser, url, game: "sagi-minuki", sample, check, open: async (pg) => { await pg.evaluate(() => { const d = document.getElementById("howto"); if (d.open) d.close(); }); } });
