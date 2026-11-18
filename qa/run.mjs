@@ -133,13 +133,14 @@ check("CSP の connect-src は 'self' だけ（外へ通信しない）", /conne
 let browser = null; // 起動に失敗しても report.md を書けるように、起動は下の try の中で
 const isNoise = (t) => /fonts\.(googleapis|gstatic)\.com|ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|net::ERR_/.test(t);
 const errors = [], outside = [];
-const FIXED = new Date(new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10) + "T03:00:00Z");
-async function newPage(w = 390, h = 844, keep = false) {
+// 今日の問題は日付で変わるので、検査も日によって通ったり落ちたりしうる。QA_DATE=2026-11-18 でその日の問題に止めて回し直せる（2026-11-18 shared-workflows incidents/2026-11-18-qa-passes-only-some-days.md）
+const FIXED = new Date((process.env.QA_DATE || new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)) + "T03:00:00Z");
+async function newPage(w = 390, h = 844, keep = false, at = FIXED) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h } }), page = await ctx.newPage(); // 2つ目のタブを開けるように、ページごとに context を作る
   page.on("pageerror", (e) => errors.push(e.stack));
   page.on("console", (m) => { if (m.type() === "error" && !isNoise(m.text())) errors.push(m.text()); });
   page.on("request", (r) => { const u = r.url(); if (!/^(file|data|blob|about):/.test(u) && !/fonts\.(googleapis|gstatic)\.com/.test(u)) outside.push(u); });
-  await page.clock.setFixedTime(FIXED); // 時計を今日の昼（日本時間）に止める
+  await page.clock.setFixedTime(at); // 時計を今日の昼（日本時間）に止める
   await page.goto(url);
   if (!keep) { await page.evaluate(() => localStorage.clear()); await page.reload(); }
   return page;
@@ -251,12 +252,20 @@ try {
   { const pp = await newPage(); await closeHow(pp); await pp.click("#go-d"); await answer(pp, "perfect"); await pp.click("#next"); await pp.click("#back");
     await pp.click("#go-p"); await pp.click('[data-t="all"]'); await answer(pp, "perfect"); await pp.click("#back");
     check("練習しても、今日の5問の途中（1問目まで）は消えない", (await pp.textContent("#go-d")).includes("2問目"));
-    // 別のタブで先に進んだら、古いタブでは答えを入れない
-    await pp.click("#go-d");
-    const other = await pp.context().newPage(); await other.clock.setFixedTime(FIXED); await other.goto(url); await other.click("#go-d"); await answer(other, "miss"); await other.close();
-    await answer(pp, "perfect");
-    check("別のタブで先に答えた問題を、古いタブで二重に入れない", await pp.evaluate(() => window.__sg.load().runs.d.res.length) === 2 && (await pp.evaluate(() => window.__sg.cur().i)) === 2);
     await pp.close(); }
+  // 別のタブで先に進んだら、古いタブでは答えを入れない。古いタブで押すと、次の問題（日によって詐欺かふつうの連絡か変わる）の最初の画面に戻るので、
+  // 押したあとは古い問題の続き（あやしい所を選ぶ）を押さない。今日だけでなく14日分で確かめる（2026-11-18 の問題で、続きを押そうとして止まった）
+  { const bad = [];
+    for (let d = 0; d < 14; d++) {
+      const at = new Date(FIXED.getTime() + d * 864e5), pp = await newPage(390, 844, false, at); await closeHow(pp);
+      await pp.click("#go-d"); await answer(pp, "perfect"); await pp.click("#next");
+      const other = await pp.context().newPage(); await other.clock.setFixedTime(at); await other.goto(url); await other.click("#go-d"); await answer(other, "miss"); await other.close();
+      await pp.click("#say-ng");
+      const r = await pp.evaluate(() => { const c = window.__sg.cur(); return { n: window.__sg.load().runs.d.res.length, i: c && c.i, step: c && c.step }; });
+      if (!(r.n === 2 && r.i === 2 && r.step === "v")) bad.push(at.toISOString().slice(0, 10) + ":" + JSON.stringify(r));
+      await pp.close();
+    }
+    check("別のタブで先に答えた問題を、古いタブで二重に入れず、次の問題の最初の画面に戻す（14日分）", bad.length === 0, bad.join(" ")); }
   // 保存してあった途中経過を確かめる
   { const pv = await newPage(); await closeHow(pv);
     const r = await pv.evaluate(() => { const g = window.__sg, it = g.dailyList(g.todayKey()).find((x) => g.probOf(x).scam), sf = g.dailyList(g.todayKey()).find((x) => !g.probOf(x).scam), p = g.probOf(it), q = g.probOf(sf);
