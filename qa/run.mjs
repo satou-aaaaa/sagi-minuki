@@ -14,6 +14,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const url = pathToFileURL(path.join(root, "index.html")).href;
 const results = [];
 const check = (name, ok, detail = "") => results.push({ name, ok: !!ok, detail });
+const firstClose = async (q) => { if (await q.locator("#howto[open]").count()) await q.click("#howto-ok"); if (await q.evaluate(() => !!(window.Core && Core.coach && Core.coach.active()))) { await q.evaluate(() => { Core.coach.leave(); scrollTo(0, 0); }); await q.waitForTimeout(100); } }; // はじめての練習の吹き出しをやめてホームへ（sync-template の migrateFirstQa が足した）
 const G = createRequire(import.meta.url)(path.join(root, "gen.js"));
 const D = G.D;
 const read = (f) => readFileSync(path.join(root, f), "utf8");
@@ -145,7 +146,7 @@ async function newPage(w = 390, h = 844, keep = false, at = FIXED) {
   if (!keep) { await page.evaluate(() => localStorage.clear()); await page.reload(); }
   return page;
 }
-const closeHow = (page) => page.evaluate(() => { const d = document.getElementById("howto"); if (d.open) d.querySelector("#howto-ok").click(); });
+const closeHow = (page) => page.evaluate(() => { const d = document.getElementById("howto"); if (d.open) d.querySelector("#howto-ok").click(); if (window.Core && Core.coach && Core.coach.active()) Core.coach.leave(); });
 const curS = (page) => page.evaluate(() => { const c = window.__sg.cur(); return c && { i: c.i, step: c.step, sel: c.sel.slice(), scam: c.p.scam, flags: window.__sg.flagSet(c.p), n: c.p.L.length, t: c.p.t, id: c.it.id }; });
 // 1問を画面のボタンで答える。how: "perfect"（ぴったり）・"half"（詐欺と見抜くが選び方ちがい）・"miss"（逆を選ぶ）
 async function answer(page, how) {
@@ -164,7 +165,7 @@ const KEY = "sagi-minuki-v1"; // gitleaks:allow 記録の名前（鍵ではな�
 try {
   browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
   const page = await newPage();
-  check("はじめて開くと遊び方が出る", await page.locator("#howto[open]").count() === 1);
+  check("はじめて開くと遊び方が出る", await page.locator("#core-coach").waitFor({ timeout: 3000 }).then(() => true, () => false));
   await closeHow(page);
   // ブラウザと Node で同じ5問（どの端末でも同じ問題）
   const sameDays = await page.evaluate(() => { const g = window.__sg, out = {}; let k = g.todayKey(); for (let i = 0; i < 30; i++) { out[k] = [g.dailyList(k), g.hardList(k)]; k = new Date(Date.parse(k) + 864e5).toISOString().slice(0, 10); } return out; });
@@ -239,12 +240,12 @@ try {
     check("今日の5問を終える前は、上級を始めない（別のタブの古い画面からも。2026-11-07 CodeRabbit）", (await ph.evaluate(() => !window.__sg.load().runs.h)) && (await ph.locator("#go-d").count()) === 1);
     check("届いたメッセージ（差出人と本文）も読み上げの対象", (await ph.evaluate(() => { window.__sg.start("d"); return !!document.querySelector(".msg[data-a11y-say]"); })));
     await ph.close(); }
-  { const pk = await newPage(); await pk.click("#howto-ok");
+  { const pk = await newPage(); await firstClose(pk);
     check("「わかった」を押した直後に読み直しても、遊び方が出ない（保存は押したときすぐ）", await pk.evaluate(() => window.__sg.load().tut === true)); await pk.reload();
     check("「わかった」のあと開き直しても、遊び方が出ない", (await pk.locator("#howto[open]").count()) === 0); await pk.close(); }
-  { let back = 0; for (let i = 0; i < 10; i++) { const pq = await newPage(); await pq.waitForFunction(() => document.getElementById("howto").open); await pq.keyboard.press("Escape"); await pq.reload(); if (await pq.evaluate(() => document.getElementById("howto").open)) back++; await pq.close(); }
+  { let back = 0; for (let i = 0; i < 10; i++) { const pq = await newPage(); await pq.waitForFunction(() => !!document.querySelector("#core-coach:not([hidden])")); await pq.keyboard.press("Escape"); await pq.reload(); if (await pq.evaluate(() => document.getElementById("howto").open)) back++; await pq.close(); }
     check("遊び方を Esc で閉じてすぐ読み直しても、遊び方が出ない（10回。cancel でも残す。shared-workflows #196）", back === 0, `${back}/10`); }
-  { const pe = await newPage(); await pe.waitForFunction(() => document.getElementById("howto").open); await pe.keyboard.press("Escape"); await pe.waitForTimeout(100);
+  { const pe = await newPage(); await pe.waitForFunction(() => !!document.querySelector("#core-coach:not([hidden])")); await pe.keyboard.press("Escape"); await pe.waitForTimeout(100);
     const closed = (await pe.locator("#howto[open]").count()) === 0; await pe.reload();
     check("遊び方を Esc で閉じたあと、開き直しても遊び方が出ない（2026-11-07 shared-workflows #186）", closed && (await pe.locator("#howto[open]").count()) === 0 && (await pe.evaluate(() => window.__sg.load().tut === true)));
     await pe.close(); }
@@ -289,7 +290,7 @@ try {
     pb.on("pageerror", (e) => errors.push(e.message));
     await pb.addInitScript(() => { Storage.prototype.setItem = () => { throw new Error("blocked"); }; });
     await pb.clock.setFixedTime(FIXED);
-    await pb.goto(url); await pb.click("#howto-ok"); await pb.click("#go-d");
+    await pb.goto(url); await firstClose(pb); await pb.click("#go-d");
     for (let i = 0; i < 5; i++) { await answer(pb, "perfect"); await pb.click("#next"); }
     check("保存できないブラウザでも、今日の5問を最後まで遊べる", (await pb.textContent("#app")).includes("全問、見抜いた"));
     await pb.click("#back");
@@ -308,7 +309,7 @@ try {
   // スマホ幅：はみ出さない・押せる所は44px以上
   for (const w of [320, 390]) {
     const p3 = await newPage(w, 700);
-    const how = await p3.evaluate(() => [...document.querySelectorAll("#howto button, #howto a")].filter((e) => Math.round(e.getBoundingClientRect().height) < 44).length);
+    await firstClose(p3).then(() => p3.evaluate(() => openHow())); const how = await p3.evaluate(() => [...document.querySelectorAll("#howto button, #howto a")].filter((e) => Math.round(e.getBoundingClientRect().height) < 44).length);
     await closeHow(p3);
     const meas = () => p3.evaluate(() => ({ over: document.documentElement.scrollWidth > innerWidth, small: [...document.querySelectorAll("button, a, summary")].filter((e) => e.offsetParent && Math.round(e.getBoundingClientRect().height) < 44).map((e) => e.id || e.textContent.trim().slice(0, 8)) }));
     const screens = {};
@@ -391,17 +392,17 @@ try {
     const pw = await browser.newPage({ viewport: { width: 390, height: 844 } });
     pw.on("pageerror", (e) => errors.push(e.message));
     await pw.addInitScript(() => { window.__origSetItem = Storage.prototype.setItem; Storage.prototype.setItem = () => { throw new Error("blocked"); }; });
-    await pw.goto(url); await pw.click("#howto-ok"); await pw.waitForTimeout(2000);
+    await pw.goto(url); await firstClose(pw); await pw.waitForTimeout(2000);
     check("保存できないときは、帯 #savewarn がちょうど1つ出て、2秒たっても残る", (await pw.locator("#savewarn").count()) === 1, await pw.locator("#savewarn").count());
     await pw.evaluate(() => { Storage.prototype.setItem = window.__origSetItem; });
-    await pw.click("#f-how"); await pw.click("#howto-ok");
+    await firstClose(pw).then(() => pw.evaluate(() => openHow())); await firstClose(pw);
     check("保存できるようになって次に保存すると、帯 #savewarn が消える", (await pw.locator("#savewarn").count()) === 0);
     await pw.close(); }
   { // 深さの部品（shared-workflows template/qa/depth-check.mjs）
     const e = await checkDepth(read("depth.js")); check("depth.js（自信をかける・復習）の動き", e.length === 0, e.join(" / ")); }
   { // 引き継ぎコード（shared-workflows template/qa/transfer-check.mjs）
     const sample = { "sagi-minuki-v1": JSON.stringify({ v: 1, tut: true, days: { "2026-11-07": { r: [{ v: 1, f: 1, k: 1 }] } }, hdays: {}, cnt: { phish: 3 }, seen: {}, perf: {}, total: 3, runs: {}, kofi: {}, ach: {}, t: 1 }), "sagi-minuki-depth": JSON.stringify({ v: 1, rv: { "phish|x|1": { s: 1, due: "2026-11-20", t: 5 } } }) }; // gitleaks:allow 記録の名前（鍵ではない）。復習の記録も引き継ぐかを見る
-    await checkTransfer({ browser, url, game: "sagi-minuki", sample, check, open: async (pg) => { await pg.evaluate(() => { const d = document.getElementById("howto"); if (d.open) d.close(); }); } });
+    await checkTransfer({ browser, url, game: "sagi-minuki", sample, check, open: async (pg) => { await pg.evaluate(() => { const d = document.getElementById("howto"); if (d.open) d.close(); if (window.Core && Core.coach && Core.coach.active()) Core.coach.leave(); }); } });
   }
 } catch (e) {
   check("QA の操作が最後まで完了する", false, e.message.split("\n")[0] + " @" + ((e.stack || "").match(/run\.mjs:(\d+)/) || [])[1]);
